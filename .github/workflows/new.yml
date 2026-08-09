@@ -90,3 +90,25 @@ jobs:
         with:
           name: luci-app-vohive-${{ matrix.id }}
           path: sdk/bin/packages/*/vohive/luci-app-vohive_*.${{ steps.sdk_env.outputs.package_ext }}
+  # ... 上面的 Build 部分保持不变 ...
+
+  release:
+    name: Publish Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/*
