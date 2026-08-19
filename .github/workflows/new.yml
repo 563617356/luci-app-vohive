@@ -89,7 +89,14 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: luci-app-vohive-${{ matrix.id }}
-          path: sdk/bin/packages/*/vohive/luci-app-vohive_*.${{ steps.sdk_env.outputs.package_ext }}
+          path: |
+            sdk/bin/packages/**/*.${{ steps.sdk_env.outputs.package_ext }}
+            sdk/bin/targets/**/*.${{ steps.sdk_env.outputs.package_ext }}
+      #- name: Upload Artifacts
+      #  uses: actions/upload-artifact@v4
+      #   with:
+      #    name: luci-app-vohive-${{ matrix.id }}
+      #    path: sdk/bin/packages/*/vohive/luci-app-vohive_*.${{ steps.sdk_env.outputs.package_ext }}
   # ... 上面的 Build 部分保持不变 ...
 
   release:
