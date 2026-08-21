@@ -89,12 +89,29 @@ jobs:
           # pipefail 保证编译失败时该步骤仍会被判定失败（ipk 走严格，apk 由 continue-on-error 兜底）
           make package/feeds/vohive/luci-app-vohive/compile V=s 2>&1 | tee /tmp/compile.log
 
+          # APK 在 compile 阶段只生成 .apk、不会自动归位到 bin/packages/<arch>/<feed>/
+          # （归位发生在 install / package/index 步骤）。显式跑 install 强制把 .apk 拷进 bin/packages。
+          make package/feeds/vohive/luci-app-vohive/install 2>&1 | tee -a /tmp/compile.log || true
+
       - name: Collect packages
         if: always()
         run: |
           set -eu
           mkdir -p dist
-          find sdk/bin -name "*.${{ steps.sdk_env.outputs.package_ext }}" -exec cp {} dist/ \; 2>/dev/null || true
+          ext="${{ steps.sdk_env.outputs.package_ext }}"
+          # 优先从 bin/packages 收集；收不到则整棵 sdk 树兜底查找（apk 可能只留在 build_dir）
+          found=0
+          while IFS= read -r f; do
+            cp "$f" dist/ && found=1
+          done < <(find sdk/bin/packages -name "luci-app-vohive*.${ext}" 2>/dev/null)
+          if [ "$found" -eq 0 ]; then
+            while IFS= read -r f; do
+              cp "$f" dist/ && found=1
+            done < <(find sdk -name "luci-app-vohive*.${ext}" 2>/dev/null)
+          fi
+          if [ "$found" -eq 0 ]; then
+            echo "::warning::No .${ext} packages were produced"
+          fi
 
       - name: Record APK build status
         if: always()
