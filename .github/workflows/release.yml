@@ -6,7 +6,9 @@ on:
       vohive_version:
         description: VoHive release tag
         required: true
-        default: v1.5.0
+        # 必须是 iniwex5/vohive-release 中实际上传过 core 二进制（vohive_<ver>_linux_<arch>）的 tag。
+        # v9.9.9（Latest）是当前唯一带二进制发布的版本；v1.5.x 系列发布页没有上传任何二进制。
+        default: v9.9.9
   push:
     tags:
       - 'v*'
@@ -133,12 +135,16 @@ jobs:
             url="https://github.com/iniwex5/vohive-release/releases/download/${VOHIVE_VERSION}/${asset}"
             # 指定版本缺该架构二进制时，自动回退到仓库最新发布（Latest），
             # 避免某个历史 tag 没上传二进制就让整个构建 404 失败。
+            # 用 GitHub 公共 API（curl + python3）解析最新 tag，避免依赖 gh CLI 鉴权。
             if ! curl -fIL --connect-timeout 20 --retry 3 "$url" >/dev/null 2>&1; then
               echo "::warning::核心版本 ${VOHIVE_VERSION} 缺少 ${asset}，回退到最新发布"
-              latest="$(gh release list --repo iniwex5/vohive-release --limit 1 --json tagName --jq '.[0].tagName')"
-              VOHIVE_VERSION="$latest"
-              asset="vohive_${VOHIVE_VERSION}_linux_${arch}"
-              url="https://github.com/iniwex5/vohive-release/releases/download/${VOHIVE_VERSION}/${asset}"
+              latest="$(curl -fsSL "https://api.github.com/repos/iniwex5/vohive-release/releases/latest" \
+                | python3 -c 'import sys,json;print(json.load(sys.stdin)["tag_name"])' 2>/dev/null)" || true
+              if [ -n "$latest" ]; then
+                VOHIVE_VERSION="$latest"
+                asset="vohive_${VOHIVE_VERSION}_linux_${arch}"
+                url="https://github.com/iniwex5/vohive-release/releases/download/${VOHIVE_VERSION}/${asset}"
+              fi
             fi
             curl -fL --connect-timeout 20 --retry 3 "$url" -o "source/vohive-core/files/vohive-${arch}"
             chmod 0755 "source/vohive-core/files/vohive-${arch}"
