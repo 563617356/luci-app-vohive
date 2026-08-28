@@ -13,7 +13,9 @@ on:
 
 env:
   TZ: Asia/Shanghai
-  VOHIVE_VERSION: ${{ github.event.inputs.vohive_version || 'v1.5.4' }}
+  # 默认指向 iniwex5/vohive-release 中带有 core 二进制的最新发布（Latest）。
+  # 旧默认 v1.5.4 的发布页没有上传任何架构二进制，会导致 core 下载 404、整个构建失败。
+  VOHIVE_VERSION: ${{ github.event.inputs.vohive_version || 'v9.9.9' }}
 
 jobs:
   prepare:
@@ -129,10 +131,20 @@ jobs:
           for arch in arm64 amd64 armv7; do
             asset="vohive_${VOHIVE_VERSION}_linux_${arch}"
             url="https://github.com/iniwex5/vohive-release/releases/download/${VOHIVE_VERSION}/${asset}"
+            # 指定版本缺该架构二进制时，自动回退到仓库最新发布（Latest），
+            # 避免某个历史 tag 没上传二进制就让整个构建 404 失败。
+            if ! curl -fIL --connect-timeout 20 --retry 3 "$url" >/dev/null 2>&1; then
+              echo "::warning::核心版本 ${VOHIVE_VERSION} 缺少 ${asset}，回退到最新发布"
+              latest="$(gh release list --repo iniwex5/vohive-release --limit 1 --json tagName --jq '.[0].tagName')"
+              VOHIVE_VERSION="$latest"
+              asset="vohive_${VOHIVE_VERSION}_linux_${arch}"
+              url="https://github.com/iniwex5/vohive-release/releases/download/${VOHIVE_VERSION}/${asset}"
+            fi
             curl -fL --connect-timeout 20 --retry 3 "$url" -o "source/vohive-core/files/vohive-${arch}"
             chmod 0755 "source/vohive-core/files/vohive-${arch}"
             file "source/vohive-core/files/vohive-${arch}"
           done
+          echo "VOHIVE_VERSION=${VOHIVE_VERSION}" >> "$GITHUB_ENV"
 
       - name: Initialize SDK
         env:
