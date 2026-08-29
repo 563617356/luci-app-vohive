@@ -40,9 +40,11 @@ jobs:
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             tag_name="${GITHUB_REF_NAME}"
             luci_version="${GITHUB_REF_NAME#v}"
+            is_prerelease=false
           else
-            tag_name="v0.0.0-dev"
+            tag_name="ci-${GITHUB_RUN_ID}"
             luci_version="0.0.0-dev"
+            is_prerelease=true
           fi
 
           previous_tag="$(git tag --sort=-v:refname --merged HEAD | grep -v "^${tag_name}$" | head -n 1 || true)"
@@ -84,6 +86,7 @@ jobs:
 
           echo "tag_name=${tag_name}" >> "$GITHUB_OUTPUT"
           echo "luci_version=${luci_version}" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=${is_prerelease}" >> "$GITHUB_OUTPUT"
 
       - name: Upload release notes
         uses: actions/upload-artifact@v4
@@ -231,6 +234,29 @@ jobs:
             echo "Package count: ${#package_files[@]}"
           } > "$dist_dir/BUILD-INFO.txt"
 
+      - name: Validate apk packages (apk-tools parse test)
+        if: ${{ matrix.id == 'openwrt_25_apk' }}
+        run: |
+          set -eu
+          cd sdk
+          APK="./staging_dir/host/bin/apk"
+          [ -x "$APK" ] || APK="$(command -v apk || true)"
+          echo "apk: $($APK --version 2>&1 | head -1)"
+          dist_dir="$(pwd)/../dist/${{ matrix.id }}"
+          fail=0
+          for f in "$dist_dir"/*.apk; do
+            echo "--- validating $f ---"
+            if "$APK" mkndx --allow-untrusted --output "$dist_dir/__check.adb" "$f" >mkndx.log 2>&1; then
+              echo "OK: parsed by apk mkndx"
+            else
+              echo "FAIL: apk mkndx could not parse this package:"
+              cat mkndx.log
+              fail=1
+            fi
+          done
+          rm -f "$dist_dir/__check.adb" mkndx.log
+          [ "$fail" -eq 0 ] || { echo "::error::One or more apk packages failed to parse with apk-tools"; exit 1; }
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -243,7 +269,6 @@ jobs:
     needs:
       - prepare
       - build
-    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -284,5 +309,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.prepare.outputs.tag_name }}
+          prerelease: ${{ needs.prepare.outputs.is_prerelease }}
           body_path: release-notes/release-notes.md
           files: releases/*
