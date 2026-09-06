@@ -4,6 +4,10 @@ ACTION="${1:-status}"
 PORT="${2:-}"
 TARGET="${3:-}"
 
+# Ensure a full PATH: when invoked by rpcd/backend the PATH may be minimal,
+# which makes command -v fail for stty/timeout etc.
+export PATH="/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
+
 DEFAULT_TIMEOUT_SECONDS=2
 
 json_escape() {
@@ -25,7 +29,15 @@ fail() {
 }
 
 pkg_installed() {
-	opkg status "$1" 2>/dev/null | grep -q '^Status: .* installed'
+	# opkg (legacy OpenWrt)
+	if command -v opkg >/dev/null 2>&1; then
+		opkg status "$1" 2>/dev/null | grep -q '^Status: .* installed' && return 0
+	fi
+	# apk (OpenWrt 24.10+ / ImmortalWrt 25.12+)
+	if command -v apk >/dev/null 2>&1; then
+		apk info -e "$1" >/dev/null 2>&1 && return 0
+	fi
+	return 1
 }
 
 dep_value() {
@@ -635,7 +647,7 @@ install_packages() {
 	local packages="$1"
 	local output
 
-	output="$(opkg update 2>&1 && opkg install $packages 2>&1)" || {
+	output="$(if command -v opkg >/dev/null 2>&1; then opkg update 2>&1 && opkg install $packages 2>&1; else apk update 2>&1 && apk add $packages 2>&1; fi)" || {
 		printf '{"ok":false,"message":"安装失败","output":"%s"}\n' "$(json_escape "$output")"
 		exit 1
 	}
