@@ -311,7 +311,7 @@ return view.extend({
 			if (this.devicePane && (status.type == 'convert_identity' || status.type == 'switch_usbnet')) {
 				this.devicePane.removeAttribute('data-loaded');
 				this.devicePane.removeAttribute('data-loading');
-				return this.loadDevicePane(this.devicePane);
+				return this.loadDeviceFromCache(this.devicePane);
 			}
 		}.bind(this));
 	},
@@ -693,7 +693,7 @@ return view.extend({
 			}.bind(this));
 	},
 
-	loadDevicePane: function(devicePane, result) {
+	runDeviceProbe: function(devicePane, result) {
 		var started = Date.now();
 
 		this.finishDeviceProbeLoading();
@@ -724,6 +724,25 @@ return view.extend({
 					this.pollDeviceProbe(devicePane, task.id, started, result);
 				}.bind(this), 1000);
 			}.bind(this));
+	loadDeviceFromCache: function(devicePane, result) {
+		return fs.exec_direct('/usr/share/vohive/device_probe.sh', [ 'cache' ])
+			.catch(function(e) {
+				return JSON.stringify({ ok: false, message: e.message || String(e), ports: [] });
+			})
+			.then(function(text) {
+				var data = parseJson(text);
+
+				if (data.ok === false || !data.ports || !data.ports.length) {
+					return this.runDeviceProbe(devicePane, result);
+				}
+
+				this.finishDeviceProbeLoading();
+				devicePane.setAttribute('data-loaded', 'true');
+				devicePane.removeAttribute('data-loading');
+				dom.content(devicePane, this.renderDeviceTools(devicePane, data, result));
+			}.bind(this));
+	},
+
 	},
 
 	runDeviceTool: function(devicePane, args, confirmText) {
@@ -739,7 +758,7 @@ return view.extend({
 			.then(function(text) {
 				var result = parseJson(text);
 				ui.addNotification(null, E('p', {}, result.message || (result.ok === false ? _('操作失败') : _('操作完成'))), result.ok === false ? 'danger' : 'info');
-				return this.loadDevicePane(devicePane, result);
+				return this.loadDeviceFromCache(devicePane, result);
 			}.bind(this));
 	},
 
@@ -980,7 +999,7 @@ return view.extend({
 					E('button', {
 						'class': 'btn cbi-button cbi-button-reload',
 						'click': ui.createHandlerFn(this, function() {
-							return this.loadDevicePane(devicePane);
+							return this.runDeviceProbe(devicePane);
 						})
 					}, _('刷新探测'))
 				]),
@@ -1270,7 +1289,7 @@ return view.extend({
 
 			devicePane.addEventListener('cbi-tab-active', function() {
 				if (devicePane.getAttribute('data-loaded') !== 'true' && devicePane.getAttribute('data-loading') !== 'true')
-					this.loadDevicePane(devicePane);
+					this.loadDeviceFromCache(devicePane);
 			}.bind(this));
 
 			var pluginPane = E('div', { 'data-tab': 'plugin', 'data-tab-title': _('插件管理') }, [
